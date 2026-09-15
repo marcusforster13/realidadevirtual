@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Evidências — XPTO Inc.</title>
+<style>
+  :root {
+    --bg: #0a0d12;
+    --bg-card: #10151d;
+    --accent: #00e5ff;
+    --accent-dim: rgba(0, 229, 255, 0.35);
+    --text: #e8edf2;
+    --text-dim: #6b7684;
+    --danger: #ff3b30;
+    --mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 32px 24px 24px;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.15);
+  }
+
+  header .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  header h1 {
+    margin: 6px 0 4px;
+    font-size: 28px;
+    font-weight: 700;
+  }
+
+  header p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  #contador {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 12px;
+  }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 229, 255, 0.12);
+    border-radius: 4px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+
+  .card:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .card img {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    display: block;
+    background: #000;
+  }
+
+  .card-body {
+    padding: 12px 14px 14px;
+  }
+
+  .card-id {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+
+  .card-row {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .card-row b {
+    color: #99a3ad;
+    font-weight: 500;
+  }
+
+  .estado {
+    padding: 60px 24px;
+    text-align: center;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+
+  .estado.erro {
+    color: var(--danger);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Bodycam 01 — XPTO Inc.</div>
+  <h1>Evidências capturadas</h1>
+  <p>Registro de imagens capturadas em campo, com verificação de integridade por hash.</p>
+  <div id="contador">carregando...</div>
+</header>
+
+<main>
+  <div id="conteudo" class="grid"></div>
+</main>
+
+<script>
+async function carregarEvidencias() {
+  const conteudo = document.getElementById('conteudo');
+  const contador = document.getElementById('contador');
+
+  try {
+    const resposta = await fetch('/api/list');
+    if (!resposta.ok) throw new Error(`Servidor respondeu ${resposta.status}`);
+
+    const { evidencias } = await resposta.json();
+
+    if (evidencias.length === 0) {
+      contador.textContent = '0 evidências registradas';
+      conteudo.className = 'estado';
+      conteudo.textContent = 'Nenhuma evidência capturada ainda. Use a bodycam em campo para registrar.';
+      return;
+    }
+
+    contador.textContent = `${evidencias.length} evidência${evidencias.length === 1 ? '' : 's'} registrada${evidencias.length === 1 ? '' : 's'}`;
+    conteudo.className = 'grid';
+    conteudo.innerHTML = evidencias.map((ev) => {
+      const data = new Date(ev.timestamp).toLocaleString('pt-BR');
+      const hashCurto = ev.hash ? `${ev.hash.slice(0, 16)}…${ev.hash.slice(-8)}` : '—';
+      return `
+        <a class="card" href="${ev.url}" target="_blank" rel="noopener">
+          <img src="${ev.url}" alt="Evidência ${ev.id}" loading="lazy" />
+          <div class="card-body">
+            <div class="card-id">${ev.id}</div>
+            <div class="card-row"><b>Data:</b> ${data}</div>
+            <div class="card-row"><b>Hash:</b> ${hashCurto}</div>
+          </div>
+        </a>
+      `;
+    }).join('');
+  } catch (erro) {
+    console.error('Erro ao carregar evidências:', erro);
+    contador.textContent = '';
+    conteudo.className = 'estado erro';
+    conteudo.textContent = `Não foi possível carregar as evidências: ${erro.message}`;
+  }
+}
+
+carregarEvidencias();
+</script>
+
+</body>
+</html>

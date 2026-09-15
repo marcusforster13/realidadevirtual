@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Favela — XPTO Inc.</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+  }
+
+  #voltar {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 999;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: #e8edf2;
+    background: rgba(10, 13, 18, 0.8);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    border-radius: 2px;
+    padding: 8px 14px;
+    text-decoration: none;
+  }
+
+  #voltar:hover {
+    background: rgba(0, 229, 255, 0.15);
+  }
+
+  #status-mic {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 999;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #6b7684;
+    background: rgba(10, 13, 18, 0.8);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    border-radius: 2px;
+    padding: 6px 12px;
+  }
+</style>
+</head>
+<body>
+
+<a id="voltar" href="/index.html">← Cenários</a>
+<div id="status-mic">Preparando microfone...</div>
+
+<script>
+  // Pede a permissão de microfone AGORA, na tela 2D, antes de entrar em VR -
+  // assim, quando o jogo for usar o comando de voz durante o combate, a
+  // permissão já está concedida e não aparece popup nenhum no meio da
+  // sessão imersiva (o que atrapalharia bastante).
+  (async () => {
+    const statusEl = document.getElementById('status-mic');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Não precisa manter o microfone "ligado" agora - só confirma a
+      // permissão. O jogo abre o microfone de novo, sozinho, quando for
+      // usar de verdade (usando a mesma permissão já concedida).
+      stream.getTracks().forEach((track) => track.stop());
+      statusEl.textContent = '🎙 Microfone pronto';
+      setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
+    } catch (erro) {
+      console.warn('[Voz] Permissão de microfone não concedida:', erro);
+      statusEl.textContent = 'Microfone não autorizado (comando de voz desativado)';
+      setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+    }
+  })();
+</script>
+
+<script type="module" src="/src/main.js"></script>
+
+</body>
+</html>

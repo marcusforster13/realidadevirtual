@@ -1825,6 +1825,14 @@ function atualizarIndicadorDeAcerto(delta) {
 function acertarBandido() {
   if (!bandidoVivo) return;
   bandidoVivo = false;
+  tirosCertos += 1;
+  justificativasDeUsoDaForca.push({
+    alvo: 'bandido_1',
+    motivo: 'ameaca_armada',
+    descricao: 'Ameaça armada - suspeito em confronto ativo',
+    timestamp: new Date().toISOString(),
+  });
+  registrarEventoDeSessao('evento_missao', 'Ameaça neutralizada (suspeito 1)', false);
 
   if (bandidoAtirandoAction) bandidoAtirandoAction.stop();
 
@@ -1843,6 +1851,16 @@ function acertarBandido() {
     bandidoMorrendoAction.play();
   } else {
     console.warn('Bandido sem animação de morte carregada - sumiu direto mesmo assim.');
+  }
+
+  verificarMissaoConcluida();
+}
+
+// Se os dois bandidos já foram neutralizados, a missão foi concluída com
+// sucesso - manda o resultado pro servidor (só uma vez por sessão).
+function verificarMissaoConcluida() {
+  if (!bandidoVivo && !bandido2Vivo && modoCombateAtivo) {
+    finalizarSessaoDeCombate('sobreviveu');
   }
 }
 
@@ -1917,11 +1935,21 @@ loader.load(
 function acertarBandido2() {
   if (!bandido2Vivo) return;
   bandido2Vivo = false;
+  tirosCertos += 1;
+  justificativasDeUsoDaForca.push({
+    alvo: 'bandido_2',
+    motivo: 'ameaca_armada',
+    descricao: 'Ameaça armada - suspeito em confronto ativo',
+    timestamp: new Date().toISOString(),
+  });
+  registrarEventoDeSessao('evento_missao', 'Ameaça neutralizada (suspeito 2)', false);
 
   tocarSomDeTiroNoBandido();
 
   if (bandido2Objeto) bandido2Objeto.visible = false;
   console.log('Segundo bandido acertado!');
+
+  verificarMissaoConcluida();
 }
 
 let mixerBondinho = null;
@@ -2351,6 +2379,9 @@ function verificarInteracaoElevador(controller) {
     modoCombateAtivo = true;
     restaurarVida();
     iniciarTiroDoBandido();
+    iniciarComandoDeVoz();
+    iniciarAnaliseDeVoz();
+    iniciarSessaoDeMonitoramento();
     hudPlano.position.copy(HUD_POSICAO_CANTO);
     hudPlano.scale.set(1, 1, 1);
     hudPlano.visible = true;
@@ -2880,8 +2911,10 @@ function ligarDesligarBodycam() {
     bodycamSegundosGravando = 0;
     desenharBodycam();
     console.log('[Bodycam] Gravação iniciada.');
+    registrarEventoDeSessao('bodycam_ativada', 'Bodycam ativada', true);
   } else {
     console.log('[Bodycam] Gravação encerrada.');
+    registrarEventoDeSessao('bodycam_desativada', 'Bodycam desativada', true);
   }
 }
 
@@ -3059,6 +3092,10 @@ async function capturarEvidencia() {
 
     mostrarPainelDeEvidencia(id, hash, timestamp);
 
+    // Aparece na linha do tempo da Central do Instrutor também, com a
+    // posição de onde a captura foi feita.
+    registrarEventoDeSessao('evidencia_capturada', `Evidência capturada · ${id}`, true);
+
     // Envia pro servidor (Vercel Blob) em segundo plano - não trava a
     // interface esperando o upload terminar.
     enviarEvidenciaParaServidor(id, hash, timestamp, dataURL);
@@ -3078,6 +3115,7 @@ async function enviarEvidenciaParaServidor(id, hash, timestamp, dataURL) {
         hash,
         timestamp: timestamp.toISOString(),
         imageBase64: dataURL,
+        sessaoId: sessaoIdAtual,
       }),
     });
 
@@ -3323,6 +3361,9 @@ function iniciarJogo() {
   jogoJaTerminou = false;
   municaoAtual = MUNICAO_CAPACIDADE;
   recarregando = false;
+  reiniciarDeteccaoDeEstresse();
+  iniciarComandoDeVoz();
+  iniciarAnaliseDeVoz();
   clearTimeout(hudEsconderTimeoutId);
   hudPlano.position.copy(HUD_POSICAO_CANTO);
   hudPlano.scale.set(1, 1, 1);
@@ -3344,6 +3385,8 @@ function iniciarJogo() {
 
 function finalizarJogoPorTempo() {
   if (!jogoAtivo) return;
+
+  enviarResultadoDoTreinamento();
 
   portasTotemAbertas = false;
   [portaEsquerdaAction, portaDireitaAction].forEach((action) => {
@@ -3367,6 +3410,8 @@ let hudEsconderTimeoutId = null;
 
 function pararJogo() {
   clearInterval(timerIntervalId);
+  pararComandoDeVoz();
+  pararAnaliseDeVoz();
   jogoAtivo = false;
   jogoJaTerminou = true;
   hudPlano.position.copy(HUD_POSICAO_CENTRO);
@@ -3390,7 +3435,95 @@ function restaurarVida() {
   bandido2JaTocouVirando = false;
   municaoAtual = MUNICAO_CAPACIDADE;
   recarregando = false;
+  reiniciarDeteccaoDeEstresse();
+  combateInicioTimestamp = Date.now();
+  resultadoJaEnviadoNestaSessao = false;
+  comandosVerbaisDetectados = 0;
+  justificativasDeUsoDaForca = [];
   desenharHUD();
+}
+
+// --- Feedback de estresse baseado em comportamento ---
+// Não usa nenhum sensor - só observa dois números que o próprio jogo já
+// tem: o quanto a mira "treme" (mudança de direção frame a frame) e a
+// precisão (tiros dados vs. tiros que acertaram algo). Tudo aqui é
+// matemática simples sobre dados que já existem - sem raycast novo, sem
+// geometria nova, então não deve pesar nem travar nada.
+let tirosDisparados = 0;
+let tirosCertos = 0;
+let miraDirecaoAnterior = null;
+let miraJitterEMA = 0; // "tremor médio" da mira, em radianos por segundo
+let estresseAcumuladorSegundos = 0;
+
+const ESTRESSE_INTERVALO_AVALIACAO_SEGUNDOS = 7;
+const ESTRESSE_JITTER_LIMIAR = 1.8; // acima disso, considera "mira tremendo muito" (ajustável)
+
+let miraJitterPico = 0; // maior valor de tremor atingido na sessão
+let vezesMiraInstavel = 0; // quantas vezes o aviso "MIRA INSTÁVEL" apareceu
+
+function reiniciarDeteccaoDeEstresse() {
+  tirosDisparados = 0;
+  tirosCertos = 0;
+  miraDirecaoAnterior = null;
+  miraJitterEMA = 0;
+  miraJitterPico = 0;
+  vezesMiraInstavel = 0;
+  vozInstabilidadeEMA = 0;
+  vozInstavelDetectada = 0;
+  vozHistoricoRMS = [];
+  estresseAcumuladorSegundos = 0;
+}
+
+// Chamado a cada frame do loop de animação - só faz a conta e guarda o
+// resultado, não desenha nada na tela (isso só acontece na avaliação
+// periódica, mais abaixo).
+function atualizarTremorDaMira(delta) {
+  const armaAtiva = jogoAtivo || modoCombateAtivo;
+  if (!armaAtiva || delta <= 0) return;
+
+  const direcaoAtual = new THREE.Vector3();
+  controller1.getWorldDirection(direcaoAtual);
+
+  if (miraDirecaoAnterior) {
+    const angulo = direcaoAtual.angleTo(miraDirecaoAnterior); // radianos
+    const velocidadeAngular = angulo / delta; // radianos por segundo
+    // Média móvel - dá mais peso pros frames recentes, sem precisar
+    // guardar um histórico de frames antigos.
+    miraJitterEMA = miraJitterEMA * 0.92 + velocidadeAngular * 0.08;
+    if (miraJitterEMA > miraJitterPico) miraJitterPico = miraJitterEMA;
+  }
+
+  if (!miraDirecaoAnterior) miraDirecaoAnterior = new THREE.Vector3();
+  miraDirecaoAnterior.copy(direcaoAtual);
+}
+
+function avaliarEstresseEDarFeedback() {
+  const miraInstavel = miraJitterEMA > ESTRESSE_JITTER_LIMIAR;
+  const vozInstavel = vozInstabilidadeEMA > VOZ_INSTABILIDADE_LIMIAR;
+
+  if (miraInstavel) {
+    vezesMiraInstavel += 1;
+    mostrarAviso('MIRA INSTÁVEL', 'Respire fundo antes de engajar.');
+  } else if (vozInstavel) {
+    vozInstavelDetectada += 1;
+    mostrarAviso('VOZ INSTÁVEL', 'Fale com firmeza e clareza ao dar comandos.');
+  }
+}
+
+// Chamado a cada frame - só acumula tempo e dispara a avaliação no
+// intervalo certo, não fica avaliando toda hora à toa.
+function atualizarDeteccaoDeEstresse(delta) {
+  const armaAtiva = jogoAtivo || modoCombateAtivo;
+  atualizarTremorDaMira(delta);
+  atualizarAnaliseDeVoz();
+
+  if (!armaAtiva) return;
+
+  estresseAcumuladorSegundos += delta;
+  if (estresseAcumuladorSegundos >= ESTRESSE_INTERVALO_AVALIACAO_SEGUNDOS) {
+    estresseAcumuladorSegundos = 0;
+    avaliarEstresseEDarFeedback();
+  }
 }
 
 const RECEBER_DANO_ATRASO_MS = 5000; // tudo (vida, vinheta, cartela) começa 5s depois do tiro
@@ -3438,13 +3571,311 @@ function receberDano(quantidade) {
 
 function pararCombate() {
   clearInterval(bandidoTiroIntervalId);
+  pararComandoDeVoz();
+  pararAnaliseDeVoz();
+  pararSessaoDeMonitoramento();
   modoCombateAtivo = false;
   desenharHUD();
+}
+
+// --- Comando verbal por voz ---
+// Usa o reconhecimento de fala nativo do navegador (Web Speech API) - não
+// precisa de nenhuma biblioteca externa. Fica "ouvindo" só durante o
+// combate, procurando por palavras de comando policial na sua fala real.
+// Se o navegador não suportar isso (ou você negar o microfone), o resto
+// do jogo continua funcionando 100% normal - só essa parte fica desligada.
+const PALAVRAS_DE_COMANDO = ['polícia', 'policia', 'mãos', 'maos', 'parado', 'parada', 'abaixe', 'chão', 'chao'];
+let reconhecimentoDeVoz = null;
+let reconhecimentoDeVozAtivo = false;
+let comandosVerbaisDetectados = 0;
+
+function iniciarComandoDeVoz() {
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognitionAPI) {
+    console.warn('[Voz] Este navegador não suporta reconhecimento de fala - comando verbal desativado, resto do jogo funciona normal.');
+    return;
+  }
+
+  if (!reconhecimentoDeVoz) {
+    reconhecimentoDeVoz = new SpeechRecognitionAPI();
+    reconhecimentoDeVoz.lang = 'pt-BR';
+    reconhecimentoDeVoz.continuous = true;
+    reconhecimentoDeVoz.interimResults = false;
+
+    reconhecimentoDeVoz.onresult = (evento) => {
+      const ultimoResultado = evento.results[evento.results.length - 1];
+      const texto = ultimoResultado[0].transcript.toLowerCase();
+      console.log('[Voz] Reconhecido:', texto);
+
+      const contemComando = PALAVRAS_DE_COMANDO.some((palavra) => texto.includes(palavra));
+      if (contemComando) {
+        comandosVerbaisDetectados += 1;
+        if (comandosVerbaisDetectados === 1) {
+          mostrarAviso('COMANDO VERBAL REGISTRADO', 'Aviso dado antes do uso da força.');
+        }
+        registrarEventoDeSessao('comando_verbal', 'Comando verbal registrado', false);
+        console.log('[Voz] Comando de polícia detectado! Total na sessão:', comandosVerbaisDetectados);
+      }
+    };
+
+    reconhecimentoDeVoz.onerror = (evento) => {
+      console.warn('[Voz] Erro no reconhecimento (mic negado ou indisponível):', evento.error);
+    };
+
+    // Alguns navegadores encerram o reconhecimento sozinhos depois de um
+    // tempo - reinicia automaticamente enquanto o combate estiver ativo.
+    reconhecimentoDeVoz.onend = () => {
+      if (reconhecimentoDeVozAtivo) {
+        try {
+          reconhecimentoDeVoz.start();
+        } catch {
+          // já pode estar rodando - ignora
+        }
+      }
+    };
+  }
+
+  try {
+    reconhecimentoDeVozAtivo = true;
+    reconhecimentoDeVoz.start();
+    console.log('[Voz] .start() chamado - fale um comando tipo "Polícia! Mãos ao alto!"');
+  } catch (erro) {
+    console.warn('[Voz] Não consegui iniciar o reconhecimento:', erro);
+  }
+}
+
+function pararComandoDeVoz() {
+  reconhecimentoDeVozAtivo = false;
+  if (reconhecimentoDeVoz) {
+    try {
+      reconhecimentoDeVoz.stop();
+    } catch {
+      // ignora - pode já estar parado
+    }
+  }
+}
+
+// --- Análise de instabilidade vocal (volume/amplitude) ---
+// IMPORTANTE: isso NÃO é um "detector de estresse psicológico" de
+// verdade - isso seria pseudociência, e detectores de "stress por voz"
+// desse tipo são bem contestados cientificamente até em uso profissional.
+// O que isso faz de verdade, com honestidade técnica: mede o quanto o
+// VOLUME da sua voz oscila de forma instável enquanto você fala (o termo
+// técnico é "shimmer" - flutuação de amplitude). É só um indicador
+// aproximado, não uma medição clínica.
+let audioContextVoz = null;
+let analiserVoz = null;
+let streamVoz = null;
+let vozInstabilidadeEMA = 0;
+let vozInstavelDetectada = 0;
+const VOZ_LIMIAR_SILENCIO = 0.02; // abaixo disso, considera que não tem fala (evita medir silêncio)
+const VOZ_INSTABILIDADE_LIMIAR = 0.55; // acima disso, considera "voz instável" (ajustável)
+
+async function iniciarAnaliseDeVoz() {
+  try {
+    streamVoz = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContextVoz = new (window.AudioContext || window.webkitAudioContext)();
+    const fonte = audioContextVoz.createMediaStreamSource(streamVoz);
+    analiserVoz = audioContextVoz.createAnalyser();
+    analiserVoz.fftSize = 1024;
+    fonte.connect(analiserVoz);
+    console.log('[Voz] Análise de volume/instabilidade iniciada.');
+  } catch (erro) {
+    console.warn('[Voz] Não consegui acessar o microfone pra análise de instabilidade:', erro);
+  }
+}
+
+function pararAnaliseDeVoz() {
+  if (streamVoz) {
+    streamVoz.getTracks().forEach((track) => track.stop());
+    streamVoz = null;
+  }
+  if (audioContextVoz) {
+    audioContextVoz.close().catch(() => {});
+    audioContextVoz = null;
+  }
+  analiserVoz = null;
+}
+
+const vozBufferAmplitude = new Uint8Array(1024);
+let vozHistoricoRMS = [];
+
+// Chamado a cada frame - calcula o volume atual e vai guardando um
+// histórico curto (último ~1 segundo) pra medir o quão instável ele está.
+function atualizarAnaliseDeVoz() {
+  if (!analiserVoz) return;
+
+  analiserVoz.getByteTimeDomainData(vozBufferAmplitude);
+
+  // RMS (root mean square) - forma padrão de medir "volume" de um sinal de áudio.
+  let somaQuadrados = 0;
+  for (let i = 0; i < vozBufferAmplitude.length; i++) {
+    const amostra = (vozBufferAmplitude[i] - 128) / 128; // normaliza pra -1..1
+    somaQuadrados += amostra * amostra;
+  }
+  const rms = Math.sqrt(somaQuadrados / vozBufferAmplitude.length);
+
+  if (rms < VOZ_LIMIAR_SILENCIO) return; // sem fala relevante agora, não conta
+
+  vozHistoricoRMS.push(rms);
+  if (vozHistoricoRMS.length > 30) vozHistoricoRMS.shift(); // ~1s de histórico
+
+  if (vozHistoricoRMS.length >= 8) {
+    const media = vozHistoricoRMS.reduce((a, b) => a + b, 0) / vozHistoricoRMS.length;
+    const variancia = vozHistoricoRMS.reduce((a, b) => a + (b - media) ** 2, 0) / vozHistoricoRMS.length;
+    const desvioPadrao = Math.sqrt(variancia);
+    const instabilidadeRelativa = media > 0 ? desvioPadrao / media : 0; // "shimmer" relativo
+
+    vozInstabilidadeEMA = vozInstabilidadeEMA * 0.9 + instabilidadeRelativa * 0.1;
+  }
+}
+
+// --- Resultado de missão (envio pro servidor, mostrado numa página separada) ---
+// Igual o sistema de evidências: em vez de criar uma tela nova dentro do
+// jogo (mais risco de travar algo), a gente só manda os dados pro
+// servidor e o resultado fica visível numa página própria (resultados.html).
+let combateInicioTimestamp = null;
+let justificativasDeUsoDaForca = [];
+let resultadoJaEnviadoNestaSessao = false;
+
+// --- Central do Instrutor: relatório da sessão (não é ao vivo) ---
+// Um ID único identifica a sessão inteira - evidências, resultado final e
+// os eventos aqui usam o MESMO id, pra tudo aparecer junto no relatório
+// depois. Diferente de monitoramento ao vivo, isso NÃO fica checando o
+// servidor toda hora - só manda um evento quando algo relevante realmente
+// acontece (bodycam, evidência, comando verbal, neutralização).
+let sessaoIdAtual = null;
+
+function gerarIdSessao() {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const aleatorio = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `SESSAO-${timestamp}-${aleatorio}`;
+}
+
+function iniciarSessaoDeMonitoramento() {
+  sessaoIdAtual = gerarIdSessao();
+  console.log('[Central] Sessão iniciada:', sessaoIdAtual);
+}
+
+function pararSessaoDeMonitoramento() {
+  sessaoIdAtual = null;
+}
+
+function posicaoAtualDoJogador() {
+  return { x: player.position.x, y: player.position.y, z: player.position.z };
+}
+
+// Registra um evento na linha do tempo da sessão (pro relatório final). A
+// posição só é enviada quando fizer sentido (bodycam, evidência) - não é
+// rastreamento contínuo, só um retrato do instante daquele evento. Cada
+// chamada é um único request leve - não roda em loop nenhum.
+async function registrarEventoDeSessao(tipo, descricao, incluirPosicao = false) {
+  if (!sessaoIdAtual) return;
+  try {
+    await fetch('/api/registrar-evento', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessaoId: sessaoIdAtual,
+        tipo,
+        descricao,
+        posicao: incluirPosicao ? posicaoAtualDoJogador() : null,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  } catch (erro) {
+    console.error('[Central] Falha ao registrar evento:', erro);
+  }
+}
+
+function gerarIdResultado() {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const aleatorio = Math.random().toString(36).slice(2, 7).toUpperCase();
+  return `SES-${timestamp}-${aleatorio}`;
+}
+
+function finalizarSessaoDeCombate(resultado) {
+  if (resultadoJaEnviadoNestaSessao) return;
+  resultadoJaEnviadoNestaSessao = true;
+
+  const duracaoSegundos = combateInicioTimestamp
+    ? Math.round((Date.now() - combateInicioTimestamp) / 1000)
+    : 0;
+  const precisao = tirosDisparados > 0 ? tirosCertos / tirosDisparados : 0;
+  const bandidosNeutralizados = (bandidoVivo ? 0 : 1) + (bandido2Vivo ? 0 : 1);
+
+  const dados = {
+    id: gerarIdResultado(),
+    tipo: 'combate',
+    timestamp: new Date().toISOString(),
+    resultado, // 'sobreviveu' ou 'morreu'
+    tirosDisparados,
+    tirosCertos,
+    precisao,
+    vidaRestante: vidaJogador,
+    bandidosNeutralizados,
+    duracaoSegundos,
+    avisosDeMiraInstavel: vezesMiraInstavel,
+    tremorPico: Number(miraJitterPico.toFixed(2)),
+    comandosVerbaisDetectados,
+    deuComandoVerbal: comandosVerbaisDetectados > 0,
+    avisosDeVozInstavel: vozInstavelDetectada,
+    justificativasDeUsoDaForca,
+    usoDaForcaCorreto: justificativasDeUsoDaForca.filter((j) => j.motivo === 'ameaca_armada').length,
+    usoDaForcaIndevido: justificativasDeUsoDaForca.filter((j) => j.motivo === 'uso_indevido').length,
+    sessaoId: sessaoIdAtual,
+  };
+
+  console.log('[Resultado] Sessão finalizada:', dados);
+  enviarResultadoParaServidor(dados);
+}
+
+async function enviarResultadoParaServidor(dados) {
+  try {
+    const resposta = await fetch('/api/salvar-resultado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dados),
+    });
+    if (!resposta.ok) throw new Error(`Servidor respondeu ${resposta.status}`);
+    console.log('[Resultado] Enviado pro servidor com sucesso.');
+  } catch (erro) {
+    console.error('[Resultado] FALHOU ao enviar pro servidor:', erro);
+  }
+}
+
+// Resultado do treinamento no totem (jogo de alvos) - tipo diferente do
+// combate, pra aparecer separado na página de resultados. Precisa ser
+// chamado ANTES de qualquer reset dos contadores (tirosDisparados/
+// tirosCertos), senão os números já teriam zerado.
+function enviarResultadoDoTreinamento() {
+  const duracaoSegundos = DURACAO_JOGO_SEGUNDOS - Math.max(0, tempoRestante);
+  const precisao = tirosDisparados > 0 ? tirosCertos / tirosDisparados : 0;
+
+  const dados = {
+    id: gerarIdResultado(),
+    tipo: 'treinamento',
+    timestamp: new Date().toISOString(),
+    score,
+    alvosAcertados: tirosCertos,
+    tirosDisparados,
+    precisao,
+    duracaoSegundos,
+    avisosDeMiraInstavel: vezesMiraInstavel,
+    tremorPico: Number(miraJitterPico.toFixed(2)),
+    comandosVerbaisDetectados,
+    deuComandoVerbal: comandosVerbaisDetectados > 0,
+    avisosDeVozInstavel: vozInstavelDetectada,
+  };
+
+  console.log('[Resultado] Treinamento finalizado:', dados);
+  enviarResultadoParaServidor(dados);
 }
 
 function jogadorMorreu() {
   jogadorMorto = true;
   console.log('Jogador morreu no combate do carro do BOPE!');
+  finalizarSessaoDeCombate('morreu');
   // Por enquanto só desliga o modo combate (para o bandido de atirar, some a barra).
   // Se você quiser: teleportar de volta a um spawn, tocar som/animação de morte,
   // mostrar uma tela de "Game Over" no HUD, etc - é aqui que entra.
@@ -3636,6 +4067,7 @@ function sumirAlvo(alvo) {
 
 function acertarAlvo(alvo) {
   if (!alvo.podeAtirar) return;
+  tirosCertos += 1;
 
   somarPonto();
   tocarSomDeAcerto();
@@ -3698,6 +4130,7 @@ function verificarTiro(controller) {
   }
 
   municaoAtual -= 1;
+  tirosDisparados += 1;
   atualizarHUDMunicao();
 
   tempMatrix.identity().extractRotation(controller.matrixWorld);
@@ -4198,6 +4631,7 @@ renderer.setAnimationLoop(() => {
 
   atualizarAviso(delta);
   atualizarBriefing(delta);
+  atualizarDeteccaoDeEstresse(delta);
   atualizarBodycam(delta);
   atualizarPainelDeEvidencia(delta);
   atualizarFlashDeCaptura(delta);

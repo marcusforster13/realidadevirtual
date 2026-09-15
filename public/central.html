@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Central do Instrutor — XPTO Inc.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0d12;
+    --bg-panel: #10151d;
+    --bg-panel-2: #141b25;
+    --line: rgba(0, 229, 255, 0.14);
+    --cyan: #00e5ff;
+    --amber: #c9a227;
+    --danger: #ff3b30;
+    --green: #2ecc71;
+    --text: #e8edf2;
+    --text-dim: #6b7684;
+    --mono: 'IBM Plex Mono', monospace;
+    --display: 'Barlow Condensed', sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 32px 24px 24px;
+    border-bottom: 1px solid var(--line);
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  header .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--cyan);
+    text-transform: uppercase;
+  }
+
+  header h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    margin: 6px 0 4px;
+    font-size: 28px;
+  }
+
+  header p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  .painel {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  .painel h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .item-sessao {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .item-sessao:hover { border-color: rgba(0, 229, 255, 0.4); }
+  .item-sessao .info { font-size: 13px; }
+  .item-sessao .data { color: var(--text-dim); font-size: 12px; }
+  .item-sessao .abrir { color: var(--cyan); font-size: 13px; }
+
+  .estado-vazio {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .voltar {
+    display: inline-block;
+    color: var(--cyan);
+    font-size: 13px;
+    text-decoration: none;
+    margin-bottom: 16px;
+    cursor: pointer;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .campo label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .campo input, .campo textarea {
+    width: 100%;
+    background: var(--bg-panel-2);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+
+  .campo textarea { resize: vertical; min-height: 70px; }
+
+  .linha-resumo {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px dashed rgba(255,255,255,0.06);
+  }
+  .linha-resumo:last-child { border-bottom: none; }
+  .linha-resumo .rotulo { color: var(--text-dim); }
+  .linha-resumo .valor { font-weight: 600; }
+
+  .grid-desempenho {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 24px;
+  }
+
+  #atividade {
+    max-height: 280px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .evento {
+    font-size: 13px;
+    display: flex;
+    gap: 10px;
+  }
+  .evento .hora { color: var(--cyan); white-space: nowrap; }
+  .evento .desc { color: var(--text); }
+  .evento .pos { color: var(--text-dim); font-size: 11px; display: block; }
+
+  .grid-evidencias {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .card-evidencia img {
+    width: 100%;
+    aspect-ratio: 16/10;
+    object-fit: cover;
+    border-radius: 2px;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .card-evidencia .id { font-size: 11px; color: var(--cyan); }
+  .card-evidencia .hash { font-size: 10px; color: var(--text-dim); word-break: break-all; }
+
+  button {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--bg-panel-2);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 10px 16px;
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(0, 229, 255, 0.5); }
+  button.primario { color: var(--cyan); border-color: rgba(0, 229, 255, 0.4); }
+  button.grande { padding: 14px 20px; font-size: 14px; width: 100%; }
+
+  #viewRelatorio { display: none; }
+
+  @media (max-width: 640px) {
+    .grid-2, .grid-desempenho { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Bodycam 01 — XPTO Inc.</div>
+  <h1>Central do Instrutor</h1>
+  <p>Relatório completo de sessões de combate já concluídas.</p>
+</header>
+
+<main>
+
+  <div id="viewLista">
+    <div class="painel">
+      <h2>Sessões registradas</h2>
+      <div id="listaSessoes"><div class="estado-vazio">Carregando...</div></div>
+    </div>
+  </div>
+
+  <div id="viewRelatorio">
+    <span class="voltar" id="botaoVoltar">← Voltar para a lista</span>
+
+    <div class="painel">
+      <h2>Identificação</h2>
+      <div class="grid-2">
+        <div class="campo"><label>Operador</label><input id="campoOperador" placeholder="Nome do operador" /></div>
+        <div class="campo"><label>Matrícula</label><input id="campoMatricula" placeholder="Ex: 4812" /></div>
+        <div class="campo"><label>Unidade</label><input id="campoUnidade" placeholder="Ex: 2º BPM" /></div>
+        <div class="campo"><label>Cenário</label><input id="campoCenario" placeholder="Ex: Operação Santa Marta" /></div>
+      </div>
+      <button class="primario" id="botaoSalvarIdentificacao" style="margin-top:12px;">Salvar identificação</button>
+    </div>
+
+    <div class="painel">
+      <h2>Resultados</h2>
+      <div class="grid-desempenho">
+        <div class="linha-resumo"><span class="rotulo">Status</span><span class="valor" id="rStatus">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Duração</span><span class="valor" id="rDuracao">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Precisão</span><span class="valor" id="rPrecisao">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Disparos</span><span class="valor" id="rDisparos">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Neutralizados</span><span class="valor" id="rNeutralizados">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Evidências</span><span class="valor" id="rEvidenciasCount">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Comandos verbais</span><span class="valor" id="rComandos">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Mira instável</span><span class="valor" id="rMira">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Voz instável</span><span class="valor" id="rVoz">—</span></div>
+        <div class="linha-resumo"><span class="rotulo">Uso da força</span><span class="valor" id="rUsoForca">—</span></div>
+      </div>
+    </div>
+
+    <div class="painel">
+      <h2>Atividade da sessão</h2>
+      <div id="atividade"><div class="estado-vazio">Nenhum evento registrado.</div></div>
+    </div>
+
+    <div class="painel">
+      <h2>Evidências</h2>
+      <div class="grid-evidencias" id="gridEvidencias"><div class="estado-vazio">Nenhuma evidência.</div></div>
+    </div>
+
+    <div class="painel">
+      <h2>Avaliação do instrutor</h2>
+      <div class="campo" style="margin-bottom:14px;">
+        <label>Nota do instrutor (0 — 10)</label>
+        <input type="number" id="campoNota" min="0" max="10" step="1" placeholder="0 a 10" />
+      </div>
+      <div class="campo" style="margin-bottom:14px;">
+        <label>Observações do instrutor</label>
+        <textarea id="campoObservacoes" placeholder="Observações sobre a sessão..."></textarea>
+      </div>
+      <div class="campo" style="margin-bottom:14px;">
+        <label>Consideração final</label>
+        <textarea id="campoConsideracaoFinal" placeholder="Consideração final..."></textarea>
+      </div>
+      <button class="primario" id="botaoSalvarAvaliacao">SALVAR AVALIAÇÃO</button>
+    </div>
+
+    <div class="painel">
+      <button class="primario grande" id="botaoExportarPDF">EXPORTAR RELATÓRIO PDF</button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+let sessaoSelecionada = null;
+let identificacaoAtual = {};
+let resultadoAtual = null;
+let eventosAtuais = [];
+let evidenciasAtuais = [];
+
+function horaCurta(iso) {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatarDuracao(segundosTotais) {
+  const m = Math.floor((segundosTotais || 0) / 60);
+  const s = Math.floor((segundosTotais || 0) % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+const DESCRICOES_EVENTO = {
+  bodycam_ativada: 'BODYCAM ATIVADA',
+  bodycam_desativada: 'BODYCAM DESATIVADA',
+  evidencia_capturada: 'EVIDÊNCIA CAPTURADA',
+  comando_verbal: 'COMANDO VERBAL REGISTRADO',
+  evento_missao: 'EVENTO DA MISSÃO',
+};
+
+async function carregarListaDeSessoes() {
+  const container = document.getElementById('listaSessoes');
+  try {
+    const resposta = await fetch('/api/listar-resultados');
+    const dados = await resposta.json();
+    const combates = (dados.resultados || []).filter((r) => r.tipo === 'combate' && r.sessaoId);
+
+    if (combates.length === 0) {
+      container.innerHTML = '<div class="estado-vazio">Nenhuma sessão de combate registrada ainda.</div>';
+      return;
+    }
+
+    container.innerHTML = combates.map((r) => {
+      const data = new Date(r.timestamp).toLocaleString('pt-BR');
+      const statusTexto = r.resultado === 'sobreviveu' ? 'Concluída' : 'Abatido';
+      return `
+        <div class="item-sessao" data-sessao="${r.sessaoId}">
+          <div class="info">
+            <div>${r.sessaoId}</div>
+            <div class="data">${data} · ${statusTexto} · Precisão ${Math.round((r.precisao || 0) * 100)}%</div>
+          </div>
+          <span class="abrir">Abrir relatório →</span>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll('.item-sessao').forEach((el) => {
+      el.addEventListener('click', () => abrirRelatorio(el.dataset.sessao, combates.find((r) => r.sessaoId === el.dataset.sessao)));
+    });
+  } catch (erro) {
+    console.error('Erro ao carregar sessões:', erro);
+    container.innerHTML = '<div class="estado-vazio">Não foi possível carregar as sessões.</div>';
+  }
+}
+
+async function abrirRelatorio(sessaoId, resultado) {
+  sessaoSelecionada = sessaoId;
+  resultadoAtual = resultado;
+
+  document.getElementById('viewLista').style.display = 'none';
+  document.getElementById('viewRelatorio').style.display = 'block';
+
+  try {
+    const resp = await fetch(`/api/identificacao-da-sessao?sessaoId=${sessaoId}`);
+    const dados = await resp.json();
+    identificacaoAtual = dados || {};
+  } catch {
+    identificacaoAtual = {};
+  }
+  document.getElementById('campoOperador').value = identificacaoAtual.operador || '';
+  document.getElementById('campoMatricula').value = identificacaoAtual.matricula || '';
+  document.getElementById('campoUnidade').value = identificacaoAtual.unidade || '';
+  document.getElementById('campoCenario').value = identificacaoAtual.cenario || '';
+
+  document.getElementById('rStatus').textContent = resultado.resultado === 'sobreviveu' ? 'Concluída' : 'Abatido';
+  document.getElementById('rDuracao').textContent = formatarDuracao(resultado.duracaoSegundos);
+  document.getElementById('rPrecisao').textContent = `${Math.round((resultado.precisao || 0) * 100)}%`;
+  document.getElementById('rDisparos').textContent = `${resultado.tirosCertos}/${resultado.tirosDisparados}`;
+  document.getElementById('rNeutralizados').textContent = `${resultado.bandidosNeutralizados}/2`;
+  document.getElementById('rComandos').textContent = resultado.comandosVerbaisDetectados ?? 0;
+  document.getElementById('rMira').textContent = resultado.avisosDeMiraInstavel ?? 0;
+  document.getElementById('rVoz').textContent = resultado.avisosDeVozInstavel ?? 0;
+  document.getElementById('rUsoForca').textContent = resultado.usoDaForcaCorreto ?? 0;
+
+  try {
+    const resp = await fetch(`/api/listar-eventos?sessaoId=${sessaoId}`);
+    const dados = await resp.json();
+    eventosAtuais = dados.eventos || [];
+  } catch {
+    eventosAtuais = [];
+  }
+  renderizarEventos();
+
+  try {
+    const resp = await fetch(`/api/list?sessaoId=${sessaoId}`);
+    const dados = await resp.json();
+    evidenciasAtuais = dados.evidencias || [];
+  } catch {
+    evidenciasAtuais = [];
+  }
+  document.getElementById('rEvidenciasCount').textContent = evidenciasAtuais.length;
+  renderizarEvidencias();
+
+  try {
+    const resp = await fetch(`/api/avaliacao-da-sessao?sessaoId=${sessaoId}`);
+    const av = await resp.json();
+    document.getElementById('campoNota').value = av ? (av.nota ?? '') : '';
+    document.getElementById('campoObservacoes').value = av ? (av.observacoes || '') : '';
+    document.getElementById('campoConsideracaoFinal').value = av ? (av.consideracaoFinal || '') : '';
+  } catch {
+    // sem avaliação ainda, tudo bem
+  }
+}
+
+function renderizarEventos() {
+  const container = document.getElementById('atividade');
+  if (eventosAtuais.length === 0) {
+    container.innerHTML = '<div class="estado-vazio">Nenhum evento registrado.</div>';
+    return;
+  }
+  container.innerHTML = eventosAtuais.map((ev) => {
+    const titulo = DESCRICOES_EVENTO[ev.tipo] || ev.descricao || ev.tipo;
+    const posTexto = ev.posicao
+      ? `<span class="pos">X ${ev.posicao.x.toFixed(2)} | Y ${ev.posicao.y.toFixed(2)} | Z ${ev.posicao.z.toFixed(2)}</span>`
+      : '';
+    return `<div class="evento"><span class="hora">${horaCurta(ev.timestamp)}</span><span class="desc">${titulo}${posTexto}</span></div>`;
+  }).join('');
+}
+
+function renderizarEvidencias() {
+  const container = document.getElementById('gridEvidencias');
+  if (evidenciasAtuais.length === 0) {
+    container.innerHTML = '<div class="estado-vazio">Nenhuma evidência.</div>';
+    return;
+  }
+  container.innerHTML = evidenciasAtuais.map((ev) => `
+    <div class="card-evidencia">
+      <img src="${ev.url}" alt="Evidência ${ev.id}" loading="lazy" />
+      <div class="id">${ev.id}</div>
+      <div class="hash">${ev.hash ? ev.hash.slice(0, 20) + '…' : ''}</div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('botaoVoltar').addEventListener('click', () => {
+  document.getElementById('viewRelatorio').style.display = 'none';
+  document.getElementById('viewLista').style.display = 'block';
+});
+
+document.getElementById('botaoSalvarIdentificacao').addEventListener('click', async () => {
+  const dados = {
+    sessaoId: sessaoSelecionada,
+    operador: document.getElementById('campoOperador').value,
+    matricula: document.getElementById('campoMatricula').value,
+    unidade: document.getElementById('campoUnidade').value,
+    cenario: document.getElementById('campoCenario').value,
+  };
+  await fetch('/api/definir-identificacao-sessao', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dados),
+  });
+  identificacaoAtual = { ...identificacaoAtual, ...dados };
+  alert('Identificação salva.');
+});
+
+document.getElementById('botaoSalvarAvaliacao').addEventListener('click', async () => {
+  const dados = {
+    sessaoId: sessaoSelecionada,
+    nota: document.getElementById('campoNota').value,
+    observacoes: document.getElementById('campoObservacoes').value,
+    consideracaoFinal: document.getElementById('campoConsideracaoFinal').value,
+  };
+  try {
+    await fetch('/api/salvar-avaliacao', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dados),
+    });
+    alert('Avaliação salva.');
+  } catch (erro) {
+    console.error(erro);
+    alert('Falha ao salvar avaliação.');
+  }
+});
+
+async function imagemParaDataURL(url) {
+  try {
+    const resposta = await fetch(url);
+    const blob = await resposta.blob();
+    return await new Promise((resolve) => {
+      const leitor = new FileReader();
+      leitor.onloadend = () => resolve(leitor.result);
+      leitor.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+document.getElementById('botaoExportarPDF').addEventListener('click', async () => {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 18;
+
+  const titulo = (texto) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(texto, 14, y);
+    y += 8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+  };
+
+  const linha = (texto) => {
+    if (y > 280) { doc.addPage(); y = 18; }
+    doc.text(String(texto), 14, y);
+    y += 6;
+  };
+
+  doc.setFontSize(9);
+  doc.setTextColor(80);
+  doc.text('BODYCAM 01 — XPTO INC.', 14, 10);
+  doc.setTextColor(0);
+
+  titulo('RELATÓRIO DE TREINAMENTO');
+  linha(`Sessão: ${sessaoSelecionada}`);
+  linha(`Data: ${new Date(resultadoAtual.timestamp).toLocaleString('pt-BR')}`);
+  linha(`Status: ${resultadoAtual.resultado === 'sobreviveu' ? 'Concluída' : 'Abatido'}`);
+  y += 4;
+
+  titulo('1. IDENTIFICAÇÃO');
+  linha(`Operador: ${identificacaoAtual.operador || '—'}`);
+  linha(`Matrícula: ${identificacaoAtual.matricula || '—'}`);
+  linha(`Unidade: ${identificacaoAtual.unidade || '—'}`);
+  linha(`Cenário: ${identificacaoAtual.cenario || '—'}`);
+  linha(`Duração: ${formatarDuracao(resultadoAtual.duracaoSegundos)}`);
+  y += 4;
+
+  titulo('2. RESULTADOS');
+  linha(`Precisão: ${Math.round((resultadoAtual.precisao || 0) * 100)}%`);
+  linha(`Disparos: ${resultadoAtual.tirosCertos}/${resultadoAtual.tirosDisparados}`);
+  linha(`Neutralizados: ${resultadoAtual.bandidosNeutralizados}/2`);
+  linha(`Mira instável: ${resultadoAtual.avisosDeMiraInstavel ?? 0}`);
+  linha(`Comandos verbais: ${resultadoAtual.comandosVerbaisDetectados ?? 0}`);
+  linha(`Voz instável: ${resultadoAtual.avisosDeVozInstavel ?? 0}`);
+  linha(`Uso da força: ${resultadoAtual.usoDaForcaCorreto ?? 0}`);
+  y += 4;
+
+  titulo('3. ATIVIDADE DA SESSÃO');
+  if (eventosAtuais.length === 0) linha('Nenhum evento registrado.');
+  eventosAtuais.forEach((ev) => {
+    const t = DESCRICOES_EVENTO[ev.tipo] || ev.tipo;
+    const pos = ev.posicao ? ` (X ${ev.posicao.x.toFixed(2)}, Y ${ev.posicao.y.toFixed(2)}, Z ${ev.posicao.z.toFixed(2)})` : '';
+    linha(`${horaCurta(ev.timestamp)} — ${t}${pos}`);
+  });
+  y += 4;
+
+  titulo('4. EVIDÊNCIAS');
+  if (evidenciasAtuais.length === 0) linha('Nenhuma evidência capturada.');
+  for (const ev of evidenciasAtuais) {
+    if (y > 250) { doc.addPage(); y = 18; }
+    linha(`ID: ${ev.id}  |  ${new Date(ev.timestamp).toLocaleString('pt-BR')}`);
+    linha(`Hash SHA-256: ${ev.hash}`);
+    const dataUrl = await imagemParaDataURL(ev.url);
+    if (dataUrl) {
+      try {
+        doc.addImage(dataUrl, 'PNG', 14, y, 60, 34);
+        y += 38;
+      } catch {
+        y += 4;
+      }
+    }
+    y += 4;
+  }
+
+  titulo('5. NOTA DO INSTRUTOR');
+  linha(document.getElementById('campoNota').value || 'Não avaliado');
+  y += 4;
+
+  titulo('6. OBSERVAÇÕES DO INSTRUTOR');
+  const obs = doc.splitTextToSize(document.getElementById('campoObservacoes').value || '—', 180);
+  obs.forEach((l) => linha(l));
+  y += 4;
+
+  titulo('7. CONSIDERAÇÃO FINAL DO INSTRUTOR');
+  const cf = doc.splitTextToSize(document.getElementById('campoConsideracaoFinal').value || '—', 180);
+  cf.forEach((l) => linha(l));
+  y += 4;
+
+  titulo('8. INTEGRIDADE DO RELATÓRIO');
+  linha(`ID da sessão: ${sessaoSelecionada}`);
+  linha(`Gerado em: ${new Date().toLocaleString('pt-BR')}`);
+
+  doc.save(`relatorio-${sessaoSelecionada}.pdf`);
+});
+
+carregarListaDeSessoes();
+</script>
+
+</body>
+</html>
